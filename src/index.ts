@@ -30,19 +30,13 @@ export default {
         const { pathname, searchParams } = url;
 
         // Định tuyến đơn giản
-        if (pathname.startsWith('/api/background')) {
-            return handleGetBackground(request, env);
+        if (url.pathname === '/api/daily-content') {
+            return handleGetDailyContent(request, env);
         }
-        if (pathname === '/api/fact') {
-            return handleGetFact(request, env);
-        }
-        if (pathname === '/api/inspiration') {
-            return handleGetInspiration(request, env);
-        }
-        if (pathname === '/api/soundscapes') {
+        if (url.pathname === '/api/soundscapes') {
             return handleGetSoundscapes(request, env);
         }
-
+        
         return createCorsResponse('Not Found', { status: 404 });
     },
 };
@@ -68,88 +62,75 @@ function createCorsResponse(body: any, options: ResponseInit = {}): Response {
     return new Response(responseBody, { ...options, headers: mergedHeaders });
 }
 
-async function handleGetBackground(request: Request, env: Env): Promise<Response> {
-    const { searchParams } = new URL(request.url);
-    const category = searchParams.get('category') || 'cat'; // Mặc định là 'cat'
+function simpleHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; // Chuyển thành số nguyên 32-bit
+    }
+    return Math.abs(hash);
+}
 
-    if (!['cat', 'dog'].includes(category)) {
-        return new Response('Invalid category', { status: 400 });
+
+async function handleGetDailyContent(request: Request, env: Env): Promise<Response> {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('userId');
+    const category = searchParams.get('category') || 'cat';
+
+    if (!userId) {
+        return createCorsResponse({ error: 'User ID is required' }, { status: 400 });
     }
 
+    // Lấy ngày hiện tại theo giờ UTC để đảm bảo nhất quán toàn cầu
+    const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    
     try {
-        // Query D1 để lấy ngẫu nhiên 1 ảnh thuộc category
-        // ORDER BY RANDOM() là một tính năng hiệu quả của SQLite
-        const stmt = env.DB.prepare(
-            `SELECT imagekit_file_id FROM Images WHERE category = ?1 AND is_active = TRUE ORDER BY RANDOM() LIMIT 1`
-        );
-        const result = await stmt.bind(category).first<{ imagekit_file_id: string }>();
+        // Query song song để lấy tổng số lượng content
+        const [imageCountResult, factCountResult] = await Promise.all([
+            env.DB.prepare(`SELECT COUNT(*) as count FROM Images WHERE category = ?1 AND is_active = TRUE`).bind(category).first<{ count: number }>(),
+            env.DB.prepare(`SELECT COUNT(*) as count FROM Facts WHERE category = ?1 AND is_active = TRUE`).bind(category).first<{ count: number }>()
+        ]);
 
-        if (!result) {
-            return new Response(`No images found for category: ${category}`, { status: 404 });
+        const totalImages = imageCountResult?.count ?? 0;
+        const totalFacts = factCountResult?.count ?? 0;
+
+        if (totalImages === 0 || totalFacts === 0) {
+            return createCorsResponse({ error: 'Not enough content for this category' }, { status: 404 });
         }
 
-        // Tạo URL tối ưu bằng endpoint của ImageKit
-        // Đây là cách tạo URL không cần SDK, chỉ cần nối chuỗi
-        // tr:w-1920,q-80,f-auto => Transformation
-        const optimizedUrl = `${env.IMAGEKIT_URL_ENDPOINT}/tr:w-1920,q-80,f-auto${result.imagekit_file_id}`;
+        // Tạo "hạt giống" và tính toán vị trí
+        const imageSeed = `${userId}-${today}-image`;
+        const factSeed = `${userId}-${today}-fact`;
+        
+        const imageOffset = simpleHash(imageSeed) % totalImages;
+        const factOffset = simpleHash(factSeed) % totalFacts;
 
-        const responseData = {
-            url: optimizedUrl,
-            // Thêm các thông tin khác nếu cần
-            // photographer: result.photographer_name
-        };
+        // Lấy chính xác content tại vị trí đã tính toán
+        const [imageResult, factResult] = await Promise.all([
+            env.DB.prepare(`SELECT * FROM Images WHERE category = ?1 AND is_active = TRUE LIMIT 1 OFFSET ?2`)
+                .bind(category, imageOffset)
+                .first(),
+            env.DB.prepare(`SELECT * FROM Facts WHERE category = ?1 AND is_active = TRUE LIMIT 1 OFFSET ?2`)
+                .bind(category, factOffset)
+                .first()
+        ]);
 
-        // Trả về JSON cho client
-	return createCorsResponse(responseData, {
-            status: 200,
-            headers: {
-                'Cache-Control': 'public, max-age=3600'
-            }
+        // Xây dựng URL cho ảnh
+        const imageUrl = imageResult ? `${env.IMAGEKIT_URL_ENDPOINT}${imageResult.imagekit_file_id}` : null;
+        const attribution = imageResult ? { photographer_name: imageResult.photographer_name, source_url: imageResult.source_url } : null;
+
+        // Trả về một object duy nhất
+        return createCorsResponse({
+            image: {
+                url: imageUrl,
+                attribution: attribution
+            },
+            fact: factResult
         });
 
     } catch (e: any) {
-        console.error("D1 Query Error:", e.message);
-	return createCorsResponse('Internal Server Error', { status: 500 });
-    }
-}
-
-async function handleGetFact(request: Request, env: Env): Promise<Response> {
-    const { searchParams } = new URL(request.url);
-    // Cho phép client lọc theo category, ví dụ /api/fact?category=cat
-    const category = searchParams.get('category'); 
-
-    try {
-        let stmt;
-        if (category && ['cat', 'dog', 'general'].includes(category)) {
-            stmt = env.DB.prepare(`SELECT content, category FROM Facts WHERE category = ?1 AND is_active = TRUE ORDER BY RANDOM() LIMIT 1`);
-            stmt = stmt.bind(category);
-        } else {
-            // Nếu không có category, lấy ngẫu nhiên từ tất cả
-            stmt = env.DB.prepare(`SELECT content, category FROM Facts WHERE is_active = TRUE ORDER BY RANDOM() LIMIT 1`);
-        }
-        
-        const result = await stmt.first<{ content: string; category: string }>();
-
-        if (!result) {
-            return createCorsResponse({ error: 'No facts found' }, { status: 404 });
-        }
-        return createCorsResponse(result, { status: 200 });
-    } catch (e) {
-        return createCorsResponse({ error: 'Internal Server Error' }, { status: 500 });
-    }
-}
-
-// Lấy ngẫu nhiên một Inspiration
-async function handleGetInspiration(request: Request, env: Env): Promise<Response> {
-    try {
-        const stmt = env.DB.prepare(`SELECT content, author FROM Inspirations WHERE is_active = TRUE ORDER BY RANDOM() LIMIT 1`);
-        const result = await stmt.first<{ content: string; author: string | null }>();
-
-        if (!result) {
-            return createCorsResponse({ error: 'No inspirations found' }, { status: 404 });
-        }
-        return createCorsResponse(result, { status: 200 });
-    } catch (e) {
+        console.error("Daily Content Error:", e.message);
         return createCorsResponse({ error: 'Internal Server Error' }, { status: 500 });
     }
 }
@@ -168,7 +149,7 @@ async function handleGetSoundscapes(request: Request, env: Env): Promise<Respons
         const soundscapesWithUrls = results.map(scape => {
             // ImageKit cũng có thể phân phối các loại file khác, không chỉ ảnh.
             // Chúng ta chỉ cần URL trực tiếp, không cần transformation.
-            const audio_url = `${env.IMAGEKIT_URL_ENDPOINT.slice(0, -1)}${scape.imagekit_file_id}`;
+            const audio_url = `${env.IMAGEKIT_URL_ENDPOINT}${scape.imagekit_file_id}`;
             return {
                 key: scape.key,
                 name: scape.name,

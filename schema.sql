@@ -3,7 +3,7 @@ DROP TABLE IF EXISTS Images;
 CREATE TABLE Images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     imagekit_file_id TEXT NOT NULL UNIQUE, -- ID của file trên ImageKit
-    category TEXT NOT NULL CHECK(category IN ('cat', 'dog')), -- cat hoặc dog
+    category TEXT NOT NULL CHECK(category IN ('cat', 'dog', 'landscape')), -- cat hoặc dog
     source_url TEXT, -- URL gốc nếu cần
     photographer_name TEXT,
     is_active BOOLEAN DEFAULT TRUE
