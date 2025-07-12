@@ -34,7 +34,11 @@
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
 	 */
-	"vars": { "IMAGEKIT_URL_ENDPOINT": "https://ik.imagekit.io/whdxyzyb2q" },
+	"vars": {
+		"PETTABS_IMAGE_CDN": "https://cdn.screenvivid.com",
+		"IMAGE_TRANSFORMATION": "width=2560,quality=80,format=webp",
+		"PETTABS_AUDIO_CDN": "https://cdn.screenvivid.com"
+	},
 	/**
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/

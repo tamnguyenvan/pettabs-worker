@@ -2,9 +2,9 @@
 DROP TABLE IF EXISTS Images;
 CREATE TABLE Images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    imagekit_file_id TEXT NOT NULL UNIQUE, -- ID của file trên ImageKit
-    category TEXT NOT NULL CHECK(category IN ('cat', 'dog', 'landscape')), -- cat hoặc dog
-    source_url TEXT, -- URL gốc nếu cần
+    file_path TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL CHECK(category IN ('cat', 'dog', 'landscape')),
+    source_url TEXT,
     photographer_name TEXT,
     is_active BOOLEAN DEFAULT TRUE
 );
@@ -13,7 +13,6 @@ CREATE TABLE Images (
 DROP TABLE IF EXISTS Facts;
 CREATE TABLE Facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    -- 'cat', 'dog', 'general' cho các sự thật về động vật nói chung
     category TEXT NOT NULL CHECK(category IN ('cat', 'dog', 'general')),
     content TEXT NOT NULL UNIQUE,
     is_active BOOLEAN DEFAULT TRUE
@@ -33,7 +32,7 @@ DROP TABLE IF EXISTS Soundscapes;
 CREATE TABLE Soundscapes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT NOT NULL UNIQUE,
-    imagekit_file_id TEXT NOT NULL UNIQUE, -- ID của file trên ImageKit
+    file_path TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE
 );
